@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
+find_package(OpenSSL REQUIRED)
+
 project(lab2)
 set(LAB1_SRC_LIST src/*.cpp)
 
@@ -23,7 +25,7 @@ target_include_directories(FSTestExec			PUBLIC ${PROJECT_SOURCE_DIR}/include)
 add_subdirectory(PATypes)
 
 target_link_libraries(DictTestExec  PATypes)
-target_link_libraries(FSTestExec  PATypes)
+target_link_libraries(FSTestExec  PATypes OpenSSL::Crypto)
 
 enable_testing()
 
