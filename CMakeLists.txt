@@ -1,8 +1,14 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.25)
+project(lab2)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -Wall -g")
 
 find_package(OpenSSL REQUIRED)
 
-project(lab2)
+find_package(wxWidgets CONFIG REQUIRED COMPONENTS core base ribbon)
+
+include(UsewxWidgets)
+
 set(LAB1_SRC_LIST src/*.cpp)
 
 include(CTest)
@@ -14,18 +20,19 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
 endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -Wall -g")
-
 add_executable(DictTestExec     src/DictTest.cpp)
-add_executable(FSTestExec     src/FSTest.cpp)
+add_executable(FSTestExec     	src/FSTest.cpp)
+add_executable(UI 			  	src/UI.cpp)
 
 target_include_directories(DictTestExec			PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(FSTestExec			PUBLIC ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(UI					PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
 add_subdirectory(PATypes)
 
 target_link_libraries(DictTestExec  PATypes)
 target_link_libraries(FSTestExec  PATypes OpenSSL::Crypto)
+target_link_libraries(UI PATypes OpenSSL::Crypto wx::core wx::ribbon)
 
 enable_testing()
 

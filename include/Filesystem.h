@@ -1,23 +1,22 @@
 #pragma once
 
 #include "Filemap.h"
+#include "SHA256.h"
 #include <PATypes/HashMap.h>
 #include <PATypes/Map.h>
-#include "SHA256.h"
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <variant>
-#include <fstream>
 
 namespace LabFS {
 class Filesystem : std::enable_shared_from_this<Filesystem> {
-    enum NodeType { NODE_FILE, NODE_DIRECTORY };
     class File {
         size_t hash;
         Path path;
         std::string name;
-		size_t size;
+        size_t size;
         std::weak_ptr<Filesystem> fs;
 
       public:
@@ -25,21 +24,23 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
              std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>())
             : path(path), name(name), fs(fs) {
             std::ifstream input;
-			input.open(path.toString(), std::ios::in | std::ios::binary);
-			PATypes::MutableArraySequence<char> contents;
-			char current;
-			while (input >> current) {
-				contents.append(current);
-			}
-			hash = LabFS_Aux::sha256(dynamic_cast<PATypes::Sequence<char>*>(&contents));
+            input.open(path.toString(), std::ios::in | std::ios::binary);
+            PATypes::MutableArraySequence<char> contents;
+            char current;
+            while (input >> current) {
+                contents.append(current);
+            }
+            hash = LabFS_Aux::sha256(
+                dynamic_cast<PATypes::Sequence<char> *>(&contents));
         }
-		~File() {
-			fs.lock()->deindexByHash(hash);
-		}
+        ~File() { fs.lock()->deindexByHash(hash); }
         size_t getHash() { return hash; }
         Path getPath() { return path; }
         std::string getName() { return name; }
     };
+
+  public:
+    enum NodeType { NODE_FILE, NODE_DIRECTORY };
     class Node : std::enable_shared_from_this<Node> {
         std::shared_ptr<File> file;
         std::string directoryName;
@@ -51,11 +52,10 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
       public:
         Node(std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>())
             : fs(fs) {}
-        Node(File file,
-             std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>())
-            : fs(fs) {
-            std::make_shared<File>(file);
-        }
+        Node(std::shared_ptr<File> file,
+             std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>(),
+             std::weak_ptr<Node> parent = std::weak_ptr<Node>())
+            : file(file), fs(fs) {}
         Node(std::string directoryName,
              std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>(),
              std::weak_ptr<Node> parent = std::weak_ptr<Node>())
@@ -77,7 +77,10 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
                     "попытка получения имени директории файла");
             return directoryName;
         }
-        void AddFile(std::shared_ptr<File> file) { file = file; }
+        void AddFileSubnode(std::shared_ptr<File> file) {
+            subnodes->Add(file->getName(),
+                          std::make_shared<Node>(file, fs, weak_from_this()));
+        }
         void AddDirectorySubnode(std::string name) {
             if (file != nullptr) {
                 throw std::logic_error("попытка добавления директории файлу");
@@ -90,6 +93,8 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
             return subnodes->GetAll();
         }
     };
+
+  private:
     Node root;
     PATypes::Map<size_t, std::shared_ptr<File>> fileStorage;
     PATypes::Map<Path, std::shared_ptr<File>, PathHash> fileByOriginPath;
@@ -102,15 +107,18 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
     std::shared_ptr<File> getFileByHash(size_t hash) {
         return fileStorage.Get(hash);
     }
-    void addFile(std::string filename, Path path) {
-		std::shared_ptr<File> file = std::make_shared<File>(filename, path, weak_from_this());
+    std::shared_ptr<File> addFile(std::string filename, Path path) {
+        std::shared_ptr<File> file =
+            std::make_shared<File>(filename, path, weak_from_this());
+        fileStorage.Add(file->getHash(), file);
+        fileByOriginPath.Add(path, file);
+        return file;
+    }
 
-	}
-
-	void deindexByHash(size_t hash) {
-		fileStorage.Delete(hash);
-		fileByOriginPath.Delete(fileStorage.Get(hash)->getPath());
-	}
+    void deindexByHash(size_t hash) {
+        fileStorage.Delete(hash);
+        fileByOriginPath.Delete(fileStorage.Get(hash)->getPath());
+    }
 
     void deindex(std::shared_ptr<File> file) {
         fileStorage.Delete(file->getHash());
