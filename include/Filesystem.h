@@ -14,6 +14,7 @@
 
 namespace LabFS {
 class Filesystem : std::enable_shared_from_this<Filesystem> {
+    public:
     class File {
         size_t hash;
         Path path;
@@ -55,7 +56,6 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
         std::string getName() { return name; }
     };
 
-  public:
     enum NodeType { NODE_FILE, NODE_DIRECTORY };
     class Node : std::enable_shared_from_this<Node> {
         std::shared_ptr<File> file;
@@ -123,6 +123,12 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
         std::shared_ptr<PATypes::Sequence<std::shared_ptr<Node>>>
         GetChildren() {
             return subnodes->GetAll();
+        }
+        std::shared_ptr<File> GetFile() {
+            if (file == nullptr) {
+                throw std::logic_error("попытка получения файла директории");
+            }
+            return file;
         }
     };
 
