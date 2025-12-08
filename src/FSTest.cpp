@@ -13,6 +13,8 @@ int main() {
             assert(iterDirectories->current()->GetName() ==
     std::string("test"));
     }
+    delete iterDirectories;
     assert(root->GetSubnode("test")->GetName() == "test");
+    root->AddFileSubnode(fs.addFile("etcpasswd", LabFS::Path("/etc/passwd")));
     return 0;
 }

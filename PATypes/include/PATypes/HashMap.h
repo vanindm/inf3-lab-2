@@ -31,6 +31,7 @@ template <class K, class V> class HashMap : IMap<K, V> {
             newMap->Set(allEnumerator->current().key,
                         func(allEnumerator->current().value));
         }
+        delete allEnumerator;
     }
     virtual void Add(K key, V value) {
         size_t hash = std::hash<K>{}(key) % mod;

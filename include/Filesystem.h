@@ -4,6 +4,8 @@
 #include "SHA256.h"
 #include <PATypes/HashMap.h>
 #include <PATypes/Map.h>
+#include <cassert>
+#include <exception>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -25,15 +27,29 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
             : path(path), name(name), fs(fs) {
             std::ifstream input;
             input.open(path.toString(), std::ios::in | std::ios::binary);
-            PATypes::MutableArraySequence<char> contents;
+            PATypes::MutableArraySequence<char> *contents =
+                new PATypes::MutableArraySequence<char>();
             char current;
             while (input >> current) {
-                contents.append(current);
+                if (input.fail()) {
+                    throw std::length_error("файл не был прочитан");
+                }
+                contents->append(current);
             }
-            hash = LabFS_Aux::sha256(
-                dynamic_cast<PATypes::Sequence<char> *>(&contents));
+            if (!input.eof() && input.fail()) {
+                throw std::length_error("файл не был прочитан");
+            }
+            PATypes::Sequence<char> *ptr =
+                (PATypes::Sequence<char> *)(contents);
+            assert(ptr != nullptr);
+            hash = LabFS_Aux::sha256(ptr);
+            delete contents;
         }
-        ~File() { fs.lock()->deindexByHash(hash); }
+
+        ~File() {
+            if (auto lockedp = fs.lock())
+                lockedp->deindexByHash(hash);
+        }
         size_t getHash() { return hash; }
         Path getPath() { return path; }
         std::string getName() { return name; }

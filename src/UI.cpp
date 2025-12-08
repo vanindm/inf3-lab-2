@@ -49,6 +49,7 @@ class MainFrame : public wxFrame {
 
     void buildFSTree();
     void addFile(const wxString &filename, const LabFS::Path &path);
+    void addDirectory(const wxString &name);
     void deleteNode();
 
   public:
@@ -61,11 +62,11 @@ wxIMPLEMENT_APP(LabFSApp);
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_RIBBONBUTTONBAR_CLICKED(wxID_ADD, MainFrame::onRibbonButtonClicked)
-        EVT_RIBBONBUTTONBAR_CLICKED(wxID_DELETE,
-                                    MainFrame::onRibbonButtonClicked)
-            wxEND_EVENT_TABLE()
+    EVT_RIBBONBUTTONBAR_CLICKED(wxID_DELETE, MainFrame::onRibbonButtonClicked)
+    EVT_RIBBONBUTTONBAR_CLICKED(wxID_HARDDISK, MainFrame::onRibbonButtonClicked)
+wxEND_EVENT_TABLE()
 
-                bool LabFSApp::OnInit() {
+                    bool LabFSApp::OnInit() {
     MainFrame *frame = new MainFrame();
     frame->Show(true);
     return true;
@@ -97,6 +98,23 @@ void MainFrame::addFile(const wxString &filename, const LabFS::Path &path) {
     }
 }
 
+void MainFrame::addDirectory(const wxString &name) {
+    wxTreeItemId currentNodeID = fsTree->GetSelection();
+    if (((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+            ->getFSNode()
+            ->GetType() == LabFS::Filesystem::NODE_FILE) {
+        currentNodeID = fsTree->GetItemParent(currentNodeID);
+    }
+    FSTreeItemData *currentNodeInfo =
+        (FSTreeItemData *)fsTree->GetItemData(currentNodeID);
+
+    auto newFSNode =
+        currentNodeInfo->getFSNode()->AddDirectorySubnode(name.ToStdString());
+    wxTreeItemId newNode = fsTree->AppendItem(currentNodeID, name);
+    fsTree->SetItemData(newNode,
+                        (wxTreeItemData *)(new FSTreeItemData(newFSNode)));
+}
+
 void MainFrame::deleteNode() {
     wxTreeItemId currentNodeID = fsTree->GetSelection();
     if (currentNodeID == fsTree->GetRootItem()) {
@@ -111,6 +129,7 @@ void MainFrame::deleteNode() {
 void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
     wxString message;
     wxFileDialog openFileDialog(this, _("Выберите файл для добавления"));
+    wxTextEntryDialog newDirDialog(this, _("Введите название новой директории"));
     switch (event.GetBar()->GetItemId(event.GetButton())) {
     case wxID_ADD:
         if (openFileDialog.ShowModal() == wxID_CANCEL)
@@ -120,6 +139,12 @@ void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
         break;
     case wxID_DELETE:
         deleteNode();
+        break;
+    case wxID_HARDDISK:
+        if (newDirDialog.ShowModal() == wxID_CANCEL) {
+            return;
+        }
+        addDirectory(newDirDialog.GetValue());
         break;
     }
 }
@@ -143,19 +168,20 @@ MainFrame::MainFrame()
                                  wxRIBBON_PANEL_NO_AUTO_MINIMISE);
 
     deletePanel = new wxRibbonPanel(
-        mainRibbonPage, wxID_HARDDISK, wxT("Удаление"), wxNullBitmap,
+        mainRibbonPage, wxID_ANY, wxT("Удаление"), wxNullBitmap,
         wxDefaultPosition, wxDefaultSize, wxRIBBON_PANEL_NO_AUTO_MINIMISE);
 
     addButtonBar = new wxRibbonButtonBar(addPanel);
-    deleteButtonBar = new wxRibbonButtonBar(deletePanel, -1, wxDefaultPosition, wxSize(64, 64));
+    deleteButtonBar = new wxRibbonButtonBar(deletePanel, -1, wxDefaultPosition,
+                                            wxSize(64, 64));
 
     addButtonBar->AddButton(wxID_ADD, wxT("Добавить файл"),
-                            wxArtProvider::GetBitmap(wxART_FILE_OPEN,
+                            wxArtProvider::GetBitmap(wxART_NORMAL_FILE,
                                                      wxART_TOOLBAR,
                                                      wxSize(32, 32)));
     addButtonBar->AddButton(
-        wxID_ANY, wxT("Добавить директорию"),
-        wxArtProvider::GetBitmap(wxART_DELETE, wxART_TOOLBAR, wxSize(32, 32)));
+        wxID_HARDDISK, wxT("Добавить директорию"),
+        wxArtProvider::GetBitmap(wxART_NEW_DIR, wxART_TOOLBAR, wxSize(32, 32)));
     deleteButtonBar->AddButton(
         wxID_DELETE, wxT("Удалить"),
         wxArtProvider::GetBitmap(wxART_DELETE, wxART_TOOLBAR, wxSize(32, 32)));

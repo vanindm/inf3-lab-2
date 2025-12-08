@@ -15,7 +15,7 @@ class Path {
         if (rpath[0] != '/') {
             rpath = HOMEDIR + path;
         }
-        std::string current_node = "/";
+        std::string current_node = "";
         for (char c : rpath) {
             if (c == '/') {
                 if (current_node == "..") {
@@ -27,6 +27,7 @@ class Path {
             }
             current_node += c;
         }
+        storage.append(current_node);
     }
     std::string toString() {
         std::string res = "";
@@ -35,6 +36,7 @@ class Path {
             res += "/";
             res += iter->current();
         }
+        delete iter;
         return res;
     }
 	auto getEnumerator() {
@@ -52,6 +54,7 @@ class PathHash {
                 h ^= std::hash<std::string>{}(en->current()) + 0x9e3779b9 +
                      (h << 6) + (h >> 2);
             }
+            delete en;
             return h;
         }
     };

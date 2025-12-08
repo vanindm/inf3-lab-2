@@ -2,17 +2,20 @@
 
 #include <openssl/sha.h>
 #include <PATypes/Sequence.h>
+#include <memory>
 
 namespace LabFS_Aux {
-	size_t sha256(PATypes::Sequence<char> *sequence) {
-		char *buffer = new char[sequence->getLength()];
-		char *ptr = buffer;
+	size_t sha256(PATypes::Sequence<char>* sequence) {
+		unsigned char *buffer = new unsigned char[sequence->getLength()];
+		unsigned char *ptr = buffer;
 		auto enumerator = sequence->getEnumerator();
 		while(enumerator->moveNext()) {
 			(*ptr) = enumerator->current();
 		}
-		size_t result = 0;
-		SHA256((unsigned char*) result, sequence->getLength(), (unsigned char *) &result);
-		return result;
+		unsigned char res[32];
+		SHA256(buffer, sequence->getLength(), (unsigned char*) res);
+		delete enumerator;
+		delete[] buffer;
+		return *((size_t *) res);
 	}
 };
