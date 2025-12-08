@@ -21,10 +21,14 @@ class LabFSApp : public wxApp {
 
 class MainFrame : public wxFrame {
     wxRibbonBar *ribbonBar;
+
     wxRibbonPage *mainRibbonPage;
-    wxRibbonPanel *fileManipPanel;
-    wxRibbonButtonBar *addFileButtonBar;
-    wxRibbonButtonBar *delFileButtonbar;
+    wxRibbonPage *permissionsRibbonPage;
+
+    wxRibbonPanel *addPanel;
+    wxRibbonButtonBar *addButtonBar;
+    wxRibbonPanel *deletePanel;
+    wxRibbonButtonBar *deleteButtonBar;
 
     wxSplitterWindow *mainSplitter;
     wxSplitterWindow *detailsSplitter;
@@ -45,20 +49,23 @@ class MainFrame : public wxFrame {
 
     void buildFSTree();
     void addFile(const wxString &filename, const LabFS::Path &path);
+    void deleteNode();
 
   public:
     MainFrame();
-	void onRibbonButtonClicked(wxRibbonButtonBarEvent &event);
-	wxDECLARE_EVENT_TABLE();
+    void onRibbonButtonClicked(wxRibbonButtonBarEvent &event);
+    wxDECLARE_EVENT_TABLE();
 };
 
 wxIMPLEMENT_APP(LabFSApp);
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
-	EVT_RIBBONBUTTONBAR_CLICKED(wxID_ADD, MainFrame::onRibbonButtonClicked)
-wxEND_EVENT_TABLE()
+    EVT_RIBBONBUTTONBAR_CLICKED(wxID_ADD, MainFrame::onRibbonButtonClicked)
+        EVT_RIBBONBUTTONBAR_CLICKED(wxID_DELETE,
+                                    MainFrame::onRibbonButtonClicked)
+            wxEND_EVENT_TABLE()
 
-bool LabFSApp::OnInit() {
+                bool LabFSApp::OnInit() {
     MainFrame *frame = new MainFrame();
     frame->Show(true);
     return true;
@@ -71,24 +78,49 @@ void MainFrame::buildFSTree() {
 }
 
 void MainFrame::addFile(const wxString &filename, const LabFS::Path &path) {
-    FSTreeItemData *currentNode =
-        (FSTreeItemData *)fsTree->GetItemData(fsTree->GetSelection());
-    if (currentNode->getFSNode()->GetType() == LabFS::Filesystem::NODE_FILE) {
-        currentNode = (FSTreeItemData *)fsTree->GetItemData(
-            fsTree->GetItemParent(fsTree->GetSelection()));
+    wxTreeItemId currentNodeID = fsTree->GetSelection();
+    if (((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+            ->getFSNode()
+            ->GetType() == LabFS::Filesystem::NODE_FILE) {
+        currentNodeID = fsTree->GetItemParent(currentNodeID);
     }
-    currentNode->getFSNode()->AddFileSubnode(fs.addFile(filename.ToStdString(), path));
-    fsTree->AppendItem(fsTree->GetSelection(), filename);
+    FSTreeItemData *currentNodeInfo =
+        (FSTreeItemData *)fsTree->GetItemData(currentNodeID);
+    if (currentNodeInfo->getFSNode() != nullptr) {
+        auto newFSNode = currentNodeInfo->getFSNode()->AddFileSubnode(
+            fs.addFile(filename.ToStdString(), path));
+        wxTreeItemId newNode = fsTree->AppendItem(currentNodeID, filename);
+        fsTree->SetItemData(newNode,
+                            (wxTreeItemData *)(new FSTreeItemData(newFSNode)));
+    } else {
+        throw std::logic_error("попытка получить нулевой указатель");
+    }
+}
+
+void MainFrame::deleteNode() {
+    wxTreeItemId currentNodeID = fsTree->GetSelection();
+    if (currentNodeID == fsTree->GetRootItem()) {
+        wxMessageDialog cannotDeleteRootDialog(
+            GetParent(), wxT("Невозможно удалить корень!"), wxT("Ошибка"));
+        cannotDeleteRootDialog.ShowModal();
+        return;
+    }
+    fsTree->Delete(currentNodeID);
 }
 
 void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
     wxString message;
+    wxFileDialog openFileDialog(this, _("Выберите файл для добавления"));
     switch (event.GetBar()->GetItemId(event.GetButton())) {
     case wxID_ADD:
-        wxFileDialog openFileDialog(this, _("Выберите файл для добавления"));
         if (openFileDialog.ShowModal() == wxID_CANCEL)
             return;
-		addFile(openFileDialog.GetFilename(), openFileDialog.GetPath().ToStdString());
+        addFile(openFileDialog.GetFilename(),
+                openFileDialog.GetPath().ToStdString());
+        break;
+    case wxID_DELETE:
+        deleteNode();
+        break;
     }
 }
 
@@ -102,23 +134,37 @@ MainFrame::MainFrame()
                                                   // wxRIBBON_BAR_SHOW_TOGGLE_BUTTON);
 
     mainRibbonPage =
-        new wxRibbonPage(ribbonBar, wxID_ANY, wxT("Опции"), wxNullBitmap);
+        new wxRibbonPage(ribbonBar, wxID_ANY, wxT("Главное"), wxNullBitmap);
+    permissionsRibbonPage =
+        new wxRibbonPage(ribbonBar, wxID_ANY, wxT("Разрешения"), wxNullBitmap);
 
-    fileManipPanel = new wxRibbonPanel(
-        mainRibbonPage, wxID_ANY, wxT("Управление файлами"), wxNullBitmap,
+    addPanel = new wxRibbonPanel(mainRibbonPage, wxID_ANY, wxT("Добавление"),
+                                 wxNullBitmap, wxDefaultPosition, wxDefaultSize,
+                                 wxRIBBON_PANEL_NO_AUTO_MINIMISE);
+
+    deletePanel = new wxRibbonPanel(
+        mainRibbonPage, wxID_HARDDISK, wxT("Удаление"), wxNullBitmap,
         wxDefaultPosition, wxDefaultSize, wxRIBBON_PANEL_NO_AUTO_MINIMISE);
 
-    addFileButtonBar = new wxRibbonButtonBar(fileManipPanel);
-    addFileButtonBar->AddButton(wxID_ADD, wxT("Добавить файл"),
-                                wxArtProvider::GetBitmap(wxART_FILE_OPEN,
-                                                         wxART_TOOLBAR,
-                                                         wxSize(32, 32)));
-    addFileButtonBar->AddButton(
-        wxID_DELETE, wxT("Удалить файл"),
+    addButtonBar = new wxRibbonButtonBar(addPanel);
+    deleteButtonBar = new wxRibbonButtonBar(deletePanel, -1, wxDefaultPosition, wxSize(64, 64));
+
+    addButtonBar->AddButton(wxID_ADD, wxT("Добавить файл"),
+                            wxArtProvider::GetBitmap(wxART_FILE_OPEN,
+                                                     wxART_TOOLBAR,
+                                                     wxSize(32, 32)));
+    addButtonBar->AddButton(
+        wxID_ANY, wxT("Добавить директорию"),
+        wxArtProvider::GetBitmap(wxART_DELETE, wxART_TOOLBAR, wxSize(32, 32)));
+    deleteButtonBar->AddButton(
+        wxID_DELETE, wxT("Удалить"),
         wxArtProvider::GetBitmap(wxART_DELETE, wxART_TOOLBAR, wxSize(32, 32)));
 
     ribbonBar->AddPageHighlight(ribbonBar->GetPageCount() - 1);
     ribbonBar->Realise();
+
+    ribbonBar->DismissExpandedPanel();
+    // ribbonBar->SetArtProvider(new wxRibbonMSWArtProvider);
 
     mainSplitter = new wxSplitterWindow(this);
     detailsSplitter = new wxSplitterWindow(mainSplitter);

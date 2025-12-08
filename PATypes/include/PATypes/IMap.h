@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include "Sequence.h"
+
 namespace PATypes {
 template <class K, class V> class IMap {
   public:

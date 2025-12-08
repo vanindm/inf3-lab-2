@@ -5,6 +5,7 @@
 
 #include "IMap.h"
 #include "Sequence.h"
+#include "PairTuple.h"
 
 const size_t HASHMAP_MOD = (1 << 10);
 
@@ -85,7 +86,7 @@ template <class K, class V> class HashMap : IMap<K, V> {
         storage = DynamicArray<std::shared_ptr<HashMapNode>>(mod);
     }
 
-    std::shared_ptr<Sequence<V>> GetAll() {
+    virtual std::shared_ptr<Sequence<V>> GetAll() {
         std::shared_ptr<MutableListSequence<V>> result =
             std::make_shared<MutableListSequence<V>>();
         for (size_t i = 0; i < mod; ++i) {
@@ -95,6 +96,22 @@ template <class K, class V> class HashMap : IMap<K, V> {
                 while (current->next != nullptr) {
                     current = current->next;
                     result->append(current->value);
+                }
+            }
+        }
+        return result;
+    }
+
+    virtual std::shared_ptr<Sequence<Pair<K, V>>> GetAllPairs() {
+        std::shared_ptr<MutableListSequence<Pair<K, V>>> result =
+            std::make_shared<MutableListSequence<Pair<K, V>>>();
+        for (size_t i = 0; i < mod; ++i) {
+            std::shared_ptr<HashMapNode> current = storage.get(i);
+            if (current != nullptr) {
+                result->append(Pair<K,V>(current->key, current->value));
+                while (current->next != nullptr) {
+                    current = current->next;
+                    result->append(Pair<K,V>(current->key, current->value));
                 }
             }
         }

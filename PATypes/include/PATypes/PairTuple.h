@@ -5,8 +5,9 @@
 namespace PATypes {
 template <class T, class U> class Pair {
   public:
-    Pair(T first, U second) : first(first), second(second) {};
-    Pair(Pair &pair) : first(pair.getFirst()), second(pair.getSecond()) {};
+    Pair() : first(), second() {}
+    Pair(const T &first, const U &second) : first(first), second(second) {};
+    Pair(const Pair &pair) : first(pair.first), second(pair.second) {};
     T &getFirst();
     U &getSecond();
 

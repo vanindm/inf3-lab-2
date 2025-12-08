@@ -50,6 +50,19 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
         std::weak_ptr<Node> parent;
 
       public:
+        ~Node() {
+            if (GetType() == NODE_DIRECTORY) {
+                // auto subnodes = this->subnodes->GetAllPairs();
+                // auto subnodesEnumerator = subnodes->getEnumerator();
+                // while (subnodesEnumerator->moveNext()) {
+                //     this->subnodes->Delete(subnodesEnumerator->current().getFirst());
+                // }
+            } else {
+                if (!fs.expired()) {
+                    (*fs.lock()).deindex(file);
+                }
+            }
+        }
         Node(std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>())
             : fs(fs) {}
         Node(std::shared_ptr<File> file,
@@ -59,7 +72,8 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
         Node(std::string directoryName,
              std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>(),
              std::weak_ptr<Node> parent = std::weak_ptr<Node>())
-            : directoryName(directoryName), fs(fs), parent(parent) {
+            : file(nullptr), directoryName(directoryName), fs(fs),
+              parent(parent) {
             subnodes = std::make_shared<
                 PATypes::HashMap<std::string, std::shared_ptr<Node>>>();
         }
@@ -77,16 +91,18 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
                     "попытка получения имени директории файла");
             return directoryName;
         }
-        void AddFileSubnode(std::shared_ptr<File> file) {
-            subnodes->Add(file->getName(),
-                          std::make_shared<Node>(file, fs, weak_from_this()));
+        std::shared_ptr<Node> AddFileSubnode(std::shared_ptr<File> file) {
+            auto newNode = std::make_shared<Node>(file, fs, weak_from_this());
+            subnodes->Add(file->getName(), newNode);
+            return newNode;
         }
-        void AddDirectorySubnode(std::string name) {
+        std::shared_ptr<Node> AddDirectorySubnode(std::string name) {
             if (file != nullptr) {
                 throw std::logic_error("попытка добавления директории файлу");
             }
-            subnodes->Add(name,
-                          std::make_shared<Node>(name, fs, weak_from_this()));
+            auto newNode = std::make_shared<Node>(name, fs, weak_from_this());
+            subnodes->Add(name, newNode);
+            return newNode;
         }
         std::shared_ptr<PATypes::Sequence<std::shared_ptr<Node>>>
         GetChildren() {

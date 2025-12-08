@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 project(lab2)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -Wall -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -Wall")
 
 find_package(OpenSSL REQUIRED)
 
@@ -12,6 +12,8 @@ include(UsewxWidgets)
 set(LAB1_SRC_LIST src/*.cpp)
 
 include(CTest)
+
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0") 
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
