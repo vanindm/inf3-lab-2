@@ -10,24 +10,18 @@ class Path {
     PATypes::LinkedList<std::string> storage;
 
   public:
-    Path(const std::string &path) {
-        std::string rpath = path;
+    Path(const std::string &pathString) {
+        std::string rpath = pathString;
         if (rpath[0] != '/') {
-            rpath = HOMEDIR + path;
+            rpath = HOMEDIR + pathString;
         }
-        std::string current_node = "";
-        for (char c : rpath) {
-            if (c == '/') {
-                if (current_node == "..") {
-                    storage.removeAt(storage.getLength() - 1);
-                } else {
-                    storage.append(current_node);
-                }
-                current_node = "";
-            }
-            current_node += c;
+        std::string::size_type pos, start = 0;
+        while ((pos = rpath.find('/', start)) != std::string::npos) {
+            if (pos != 0)
+                storage.append(rpath.substr(start, pos - start));
+            start = pos + 1;
         }
-        storage.append(current_node);
+        storage.append(rpath.substr(start));
     }
     std::string toString() {
         std::string res = "";
@@ -35,7 +29,7 @@ class Path {
         while (iter->moveNext()) {
             res += "/";
             res += iter->current();
-        }
+        } 
         delete iter;
         return res;
     }

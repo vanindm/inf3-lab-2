@@ -8,9 +8,9 @@
 #include <wx/ribbon/bar.h>
 #include <wx/ribbon/buttonbar.h>
 
+#include <format>
 #include <memory>
 #include <string>
-#include <format>
 
 #include "Filemap.h"
 #include "Filesystem.h"
@@ -18,6 +18,7 @@
 class LabFSApp : public wxApp {
   public:
     virtual bool OnInit();
+    virtual bool OnExceptionInMainLoop() override;
 };
 
 class MainFrame : public wxFrame {
@@ -57,22 +58,34 @@ class MainFrame : public wxFrame {
   public:
     MainFrame();
     void onRibbonButtonClicked(wxRibbonButtonBarEvent &event);
-	void onFSTreeSelectionChanged(wxTreeEvent &event);
-	wxDECLARE_EVENT_TABLE();
+    void onFSTreeSelectionChanged(wxTreeEvent &event);
+    wxDECLARE_EVENT_TABLE();
 };
 
 wxIMPLEMENT_APP(LabFSApp);
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_RIBBONBUTTONBAR_CLICKED(wxID_ADD, MainFrame::onRibbonButtonClicked)
-    EVT_RIBBONBUTTONBAR_CLICKED(wxID_DELETE, MainFrame::onRibbonButtonClicked)
-    EVT_RIBBONBUTTONBAR_CLICKED(wxID_HARDDISK, MainFrame::onRibbonButtonClicked)
-    EVT_TREE_SEL_CHANGED(wxID_TOP, MainFrame::onFSTreeSelectionChanged)
-wxEND_EVENT_TABLE()
+        EVT_RIBBONBUTTONBAR_CLICKED(wxID_DELETE,
+                                    MainFrame::onRibbonButtonClicked)
+            EVT_RIBBONBUTTONBAR_CLICKED(wxID_HARDDISK,
+                                        MainFrame::onRibbonButtonClicked)
+                EVT_TREE_SEL_CHANGED(wxID_TOP,
+                                     MainFrame::onFSTreeSelectionChanged)
+                    wxEND_EVENT_TABLE()
 
-                    bool LabFSApp::OnInit() {
+bool LabFSApp::OnInit() {
     MainFrame *frame = new MainFrame();
     frame->Show(true);
+    return true;
+}
+
+bool LabFSApp::OnExceptionInMainLoop() {
+    try {
+        throw;
+    } catch (const std::exception& exception) {
+        wxMessageBox(wxString::FromUTF8(exception.what()), wxString::FromUTF8("Ошибка"), wxOK | wxICON_ERROR);
+    }
     return true;
 }
 
@@ -132,8 +145,9 @@ void MainFrame::deleteNode() {
 
 void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
     wxString message;
-    wxFileDialog openFileDialog(this, _("Выберите файл для добавления"));
-    wxTextEntryDialog newDirDialog(this, _("Введите название новой директории"));
+    wxFileDialog openFileDialog(this, wxT("Выберите файл для добавления"));
+    wxTextEntryDialog newDirDialog(this,
+                                   wxT("Введите название новой директории"));
     switch (event.GetBar()->GetItemId(event.GetButton())) {
     case wxID_ADD:
         if (openFileDialog.ShowModal() == wxID_CANCEL)
@@ -154,24 +168,34 @@ void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
 }
 
 void MainFrame::onFSTreeSelectionChanged(wxTreeEvent &event) {
-    updateDescriptionText();
+    try {
+        updateDescriptionText();
+    } catch (std::exception &e) {
+        wxString s(e.what());
+        wxMessageDialog errorBox(GetParent(), s, wxT("Ошибка"));
+        errorBox.ShowModal();
+    }
 }
 
 void MainFrame::updateDescriptionText() {
     wxTreeItemId currentNodeID = fsTree->GetSelection();
     FSTreeItemData *currentNodeInfo =
         (FSTreeItemData *)fsTree->GetItemData(currentNodeID);
-    std::shared_ptr<LabFS::Filesystem::Node> node = currentNodeInfo->getFSNode();
+    std::shared_ptr<LabFS::Filesystem::Node> node =
+        currentNodeInfo->getFSNode();
     std::string description;
-    switch (node->GetType()) {
-        case (LabFS::Filesystem::NODE_DIRECTORY):
-            description = std::format("Имя директооии: {}\n", node->GetName());
-            break;
-        case (LabFS::Filesystem::NODE_FILE):
-            description = std::format("Имя файла: {}\nПуть до файла: {}\nХэш файла: {}\n", node->GetName(), node->GetFile()->getPath().toString(), node->GetFile()->getHash());
-            break; 
+    if (currentNodeInfo->getFSNode()->GetType() ==
+        LabFS::Filesystem::NODE_DIRECTORY) {
+        description = std::format("Имя директории:\t{}",
+                                  currentNodeInfo->getFSNode()->GetName());
+    } else {
+        description = std::format(
+            "Имя файла:\t{}\nПуть до файла:\t{}\nХэш файла:\t{}\n",
+            currentNodeInfo->getFSNode()->GetFile()->getName(),
+            currentNodeInfo->getFSNode()->GetFile()->getPath().toString(),
+            currentNodeInfo->getFSNode()->GetFile()->getHash());
     }
-    descriptionText->SetValue(description);
+    descriptionText->SetValue(wxString::FromUTF8(description));
 }
 
 MainFrame::MainFrame()
@@ -218,7 +242,9 @@ MainFrame::MainFrame()
     // ribbonBar->SetArtProvider(new wxRibbonMSWArtProvider);
 
     mainSplitter = new wxSplitterWindow(this);
-    descriptionText = new wxTextCtrl(mainSplitter, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxALIGN_TOP);
+    descriptionText =
+        new wxTextCtrl(mainSplitter, wxID_ANY, "", wxDefaultPosition,
+                       wxDefaultSize, wxTE_MULTILINE | wxALIGN_TOP | wxTE_READONLY);
 
     mainSplitter->SetSashGravity(0.3);
 

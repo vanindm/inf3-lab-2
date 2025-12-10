@@ -38,6 +38,7 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
                 contents->append(current);
             }
             if (!input.eof() && input.fail()) {
+                throw std::length_error(path.toString());
                 throw std::length_error("файл не был прочитан");
             }
             PATypes::Sequence<char> *ptr =
