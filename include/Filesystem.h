@@ -2,6 +2,7 @@
 
 #include "Filemap.h"
 #include "SHA256.h"
+#include "Backref.h"
 #include <PATypes/HashMap.h>
 #include <PATypes/Map.h>
 #include <cassert>
@@ -13,19 +14,19 @@
 #include <variant>
 
 namespace LabFS {
-class Filesystem : std::enable_shared_from_this<Filesystem> {
+class Filesystem : public std::enable_shared_from_this<Filesystem> {
     public:
     class File {
         size_t hash;
-        Path path;
         std::string name;
+        Path path;
         size_t size;
         std::weak_ptr<Filesystem> fs;
 
       public:
         File(std::string name, Path path,
              std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>())
-            : path(path), name(name), fs(fs), size(0) {
+            : name(name), path(path), size(0), fs(fs) {
             std::ifstream input;
             input.open(path.toString(), std::ios::in | std::ios::binary);
             PATypes::MutableArraySequence<char> *contents =
@@ -49,7 +50,10 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
             hash = LabFS_Aux::pseudoSHA256(ptr);
             delete contents;
         }
-        File(const File& file, std::weak_ptr<Filesystem> fsptr) : path(file.path) {
+        File(const File& file) : hash(file.hash), name(file.name), path(file.path), size(file.size), fs(file.fs) {
+
+        }
+        File(const File& file, std::weak_ptr<Filesystem> fsptr) : hash(file.hash), name(file.name), path(file.path), size(file.size) {
 
         }
 
@@ -64,13 +68,14 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
     };
 
     enum NodeType { NODE_FILE, NODE_DIRECTORY };
-    class Node : std::enable_shared_from_this<Node> {
+    class Node : public std::enable_shared_from_this<Node>, LabFS_Aux::IReferenceable {
         std::shared_ptr<File> file;
         std::string directoryName;
         std::shared_ptr<PATypes::HashMap<std::string, std::shared_ptr<Node>>>
             subnodes;
         std::weak_ptr<Filesystem> fs;
         std::weak_ptr<Node> parent;
+        void* back_ref;
 
         void changeFS(std::shared_ptr<Filesystem> fsptr) {
             if (GetType() == NODE_FILE) {
@@ -98,7 +103,7 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
         Node(std::shared_ptr<File> file,
              std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>(),
              std::weak_ptr<Node> parent = std::weak_ptr<Node>())
-            : file(file), fs(fs) {}
+            : file(file), fs(fs), parent(parent) {}
         Node(std::string directoryName,
              std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>(),
              std::weak_ptr<Node> parent = std::weak_ptr<Node>())
@@ -153,21 +158,43 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
                     parentptr->subnodes->Delete(directoryName);
                 } else {
                     target->subnodes->Add(file->getName(), shared_from_this());
-                    parentptr->subnodes->Delete(file->getName());
+                    if (parentptr != nullptr)
+                        parentptr->subnodes->Delete(file->getName());
+                    parent = target;
                 }
             }
+        }
+        void SetReference(void* reference) {
+            this->back_ref = reference;
+        }
+        void* GetReference() {
+            return this->back_ref;
         }
     };
 
   private:
-    Node root;
+    std::shared_ptr<Node> root;
     PATypes::Map<size_t, std::shared_ptr<File>> fileStorage;
     PATypes::Map<Path, std::shared_ptr<File>, PathHash> fileByOriginPath;
 
   public:
-    Filesystem() : root(std::string("/"), weak_from_this()) {}
+    Filesystem() {
+        root = std::make_shared<Node>(std::string("/"), weak_from_this());
+    }
     std::shared_ptr<Node> getRootDirectory() {
-        return std::make_shared<Node>(root);
+        return root;
+    }
+    std::shared_ptr<Node> getNodeByPath(Path& path) {
+        if (path.toString() == "" || path.toString() == "/") {
+            return getRootDirectory();
+        }
+        auto pathEnumerator = path.getEnumerator();
+        std::shared_ptr<Node> currentNode = getRootDirectory();
+        while (pathEnumerator->moveNext()) {
+            currentNode = currentNode->GetSubnode(pathEnumerator->current());
+        }
+        delete pathEnumerator;
+        return currentNode;
     }
     std::shared_ptr<File> getFileByHash(size_t hash) {
         return fileStorage.Get(hash);

@@ -75,7 +75,7 @@ template <class K, class V> class HashMap : IMap<K, V> {
         }
         std::shared_ptr<HashMapNode> prev = current;
         current = current->next;
-        while (current->next != nullptr) {
+        while (current != nullptr && current->next != nullptr) {
             if (current->key == key) {
                 prev->next = current->next;
             }

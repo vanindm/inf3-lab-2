@@ -54,6 +54,7 @@ class MainFrame : public wxFrame {
     void addDirectory(const wxString &name);
     void deleteNode();
     void moveNode(LabFS::Path &path);
+    void moveNodeID(wxTreeItemId Node, LabFS::Path &toWhere);
     void updateDescriptionText();
 
   public:
@@ -95,8 +96,10 @@ bool LabFSApp::OnExceptionInMainLoop() {
 
 void MainFrame::buildFSTree() {
     auto root = fsTree->AddRoot(fs.getRootDirectory()->GetName());
-    FSTreeItemData *ptr = new FSTreeItemData(fs.getRootDirectory());
+    auto rootDir = fs.getRootDirectory();
+    FSTreeItemData *ptr = new FSTreeItemData(rootDir);
     fsTree->SetItemData(root, (wxTreeItemData *)(ptr));
+    rootDir->SetReference(new wxTreeItemId(root));
 }
 
 void MainFrame::addFile(const wxString &filename, const LabFS::Path &path) {
@@ -114,6 +117,7 @@ void MainFrame::addFile(const wxString &filename, const LabFS::Path &path) {
         wxTreeItemId newNode = fsTree->AppendItem(currentNodeID, filename);
         fsTree->SetItemData(newNode,
                             (wxTreeItemData *)(new FSTreeItemData(newFSNode)));
+        newFSNode->SetReference(new wxTreeItemId(newNode));
     } else {
         throw std::logic_error("попытка получить нулевой указатель");
     }
@@ -134,6 +138,7 @@ void MainFrame::addDirectory(const wxString &name) {
     wxTreeItemId newNode = fsTree->AppendItem(currentNodeID, name);
     fsTree->SetItemData(newNode,
                         (wxTreeItemData *)(new FSTreeItemData(newFSNode)));
+    newFSNode->SetReference(new wxTreeItemId(newNode));
 }
 
 void MainFrame::deleteNode() {
@@ -147,6 +152,55 @@ void MainFrame::deleteNode() {
     fsTree->Delete(currentNodeID);
 }
 
+void MainFrame::moveNodeID(wxTreeItemId Node, LabFS::Path &toWhere) {
+    wxTreeItemId currentNodeID = Node;
+    if (currentNodeID == fsTree->GetRootItem()) {
+        wxMessageDialog cannotMoveRootDialog(
+            GetParent(), wxT("Невозможно переместить корень!"), wxT("Ошибка"));
+        cannotMoveRootDialog.ShowModal();
+        return;
+    }
+    auto targetFSNode = fs.getNodeByPath(toWhere);
+    wxTreeItemId* targetFSTreeNode = (wxTreeItemId*) targetFSNode->GetReference();
+    if (targetFSTreeNode == nullptr) {
+        throw std::logic_error("Директории не существует");
+    }
+    
+    auto foundItemData = (FSTreeItemData *)(fsTree->GetItemData(*targetFSTreeNode));
+    if (targetFSNode->GetType() == LabFS::Filesystem::NODE_FILE) {
+        throw std::logic_error("попытка переместить не в директорию!");
+    }
+
+    ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+        ->getFSNode()
+        ->move(targetFSNode);
+    
+    auto newNode = fsTree->AppendItem(
+        *targetFSTreeNode, ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+                       ->getFSNode()
+                       ->GetName());
+
+    delete (wxTreeItemId*)((FSTreeItemData *) fsTree->GetItemData(currentNodeID))->getFSNode()->GetReference();
+    ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+        ->getFSNode()
+        ->SetReference(new wxTreeItemId(newNode));
+
+    fsTree->SetItemData(
+        newNode, (wxTreeItemData *)(new FSTreeItemData(
+                                        ((FSTreeItemData *)fsTree->GetItemData(
+                                            currentNodeID))->getFSNode())));
+
+    if (((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode()->GetType() == LabFS::Filesystem::NODE_DIRECTORY) {
+        wxTreeItemIdValue cookie;
+        wxTreeItemId item = fsTree->GetFirstChild(currentNodeID, cookie);
+        while (item.IsOk()) {
+            moveNodeID(item, toWhere.add(((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode()->GetName()));
+            item = fsTree->GetNextChild(item, cookie);
+        }
+    }
+    fsTree->Delete(currentNodeID);
+}
+
 void MainFrame::moveNode(LabFS::Path &toWhere) {
     wxTreeItemId currentNodeID = fsTree->GetSelection();
     if (currentNodeID == fsTree->GetRootItem()) {
@@ -155,48 +209,44 @@ void MainFrame::moveNode(LabFS::Path &toWhere) {
         cannotMoveRootDialog.ShowModal();
         return;
     }
-    auto enumeratePath = toWhere.getEnumerator();
-    auto foundNode = wxTreeItemId();
-    auto currentNode = fsTree->GetRootItem();
-    if (toWhere.toString() != "/") {
-        while (enumeratePath->moveNext()) {
-            wxTreeItemIdValue cookie;
-            wxTreeItemId item = fsTree->GetFirstChild(currentNode, cookie);
-            while (item.IsOk()) {
-                wxString sData = fsTree->GetItemText(item);
-                if (sData.ToStdString() == enumeratePath->current()) {
-                    break;
-                }
-            }
-            wxString sData = fsTree->GetItemText(item);
-            if (sData.ToStdString() == enumeratePath->current()) {
-                break;
-            } else {
-                item = fsTree->GetNextChild(item, cookie);
-            }
-        }
-        if (!foundNode.IsOk()) {
-            throw std::logic_error(
-                "Не найдена директория, в которую следует переместить!");
-        }
-    } else {
-        foundNode = fsTree->GetRootItem();
+    auto targetFSNode = fs.getNodeByPath(toWhere);
+    wxTreeItemId* targetFSTreeNode = (wxTreeItemId*) targetFSNode->GetReference();
+    if (targetFSTreeNode == nullptr) {
+        throw std::logic_error("Директории не существует");
     }
-    auto foundItemData = (FSTreeItemData *)(fsTree->GetItemData(foundNode));
-    if (foundItemData->getFSNode()->GetType() == LabFS::Filesystem::NODE_FILE) {
+    
+    auto foundItemData = (FSTreeItemData *)(fsTree->GetItemData(*targetFSTreeNode));
+    if (targetFSNode->GetType() == LabFS::Filesystem::NODE_FILE) {
         throw std::logic_error("попытка переместить не в директорию!");
     }
+
     ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
         ->getFSNode()
-        ->move(foundItemData->getFSNode());
+        ->move(targetFSNode);
+    
     auto newNode = fsTree->AppendItem(
-        foundNode, ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+        *targetFSTreeNode, ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
                        ->getFSNode()
                        ->GetName());
+
+    delete (wxTreeItemId*)((FSTreeItemData *) fsTree->GetItemData(currentNodeID))->getFSNode()->GetReference();
+    ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+        ->getFSNode()
+        ->SetReference(new wxTreeItemId(newNode));
+
     fsTree->SetItemData(
         newNode, (wxTreeItemData *)(new FSTreeItemData(
                                         ((FSTreeItemData *)fsTree->GetItemData(
                                             currentNodeID))->getFSNode())));
+
+    if (((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode()->GetType() == LabFS::Filesystem::NODE_DIRECTORY) {
+        wxTreeItemIdValue cookie;
+        wxTreeItemId item = fsTree->GetFirstChild(currentNodeID, cookie);
+        while (item.IsOk()) {
+            moveNodeID(item, toWhere.add(((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode()->GetName()));
+            item = fsTree->GetNextChild(item, cookie);
+        }
+    }
     fsTree->Delete(currentNodeID);
 }
 

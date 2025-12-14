@@ -37,6 +37,12 @@ class Path {
 	auto getEnumerator() {
 		return storage.getEnumerator();
 	}
+    Path& add(const std::string& toAdd) {
+        if (storage.getLength() == 1 && storage.getFirst() == "")
+            storage = PATypes::LinkedList<std::string>();
+        storage.append(toAdd);
+        return *this;
+    }
 };
 
 class PathHash {

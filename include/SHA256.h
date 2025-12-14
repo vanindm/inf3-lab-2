@@ -11,11 +11,12 @@ namespace LabFS_Aux {
 		auto enumerator = sequence->getEnumerator();
 		while(enumerator->moveNext()) {
 			(*ptr) = enumerator->current();
+			++ptr;
 		}
 		unsigned char res[32];
-		SHA256(buffer, sequence->getLength(), (unsigned char*) res);
+		SHA256(buffer, sequence->getLength(), res);
 		delete enumerator;
 		delete[] buffer;
-		return *((size_t *) res);
+		return (*((size_t *) res));
 	}
 };
