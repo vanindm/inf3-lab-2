@@ -53,6 +53,7 @@ class MainFrame : public wxFrame {
     void addFile(const wxString &filename, const LabFS::Path &path);
     void addDirectory(const wxString &name);
     void deleteNode();
+    void moveNode(LabFS::Path &path);
     void updateDescriptionText();
 
   public:
@@ -70,11 +71,13 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
                                     MainFrame::onRibbonButtonClicked)
             EVT_RIBBONBUTTONBAR_CLICKED(wxID_HARDDISK,
                                         MainFrame::onRibbonButtonClicked)
-                EVT_TREE_SEL_CHANGED(wxID_TOP,
-                                     MainFrame::onFSTreeSelectionChanged)
-                    wxEND_EVENT_TABLE()
+                EVT_RIBBONBUTTONBAR_CLICKED(wxID_EDIT,
+                                            MainFrame::onRibbonButtonClicked)
+                    EVT_TREE_SEL_CHANGED(wxID_TOP,
+                                         MainFrame::onFSTreeSelectionChanged)
+                        wxEND_EVENT_TABLE()
 
-bool LabFSApp::OnInit() {
+                            bool LabFSApp::OnInit() {
     MainFrame *frame = new MainFrame();
     frame->Show(true);
     return true;
@@ -83,8 +86,9 @@ bool LabFSApp::OnInit() {
 bool LabFSApp::OnExceptionInMainLoop() {
     try {
         throw;
-    } catch (const std::exception& exception) {
-        wxMessageBox(wxString::FromUTF8(exception.what()), wxString::FromUTF8("Ошибка"), wxOK | wxICON_ERROR);
+    } catch (const std::exception &exception) {
+        wxMessageBox(wxString::FromUTF8(exception.what()),
+                     wxString::FromUTF8("Ошибка"), wxOK | wxICON_ERROR);
     }
     return true;
 }
@@ -143,11 +147,65 @@ void MainFrame::deleteNode() {
     fsTree->Delete(currentNodeID);
 }
 
+void MainFrame::moveNode(LabFS::Path &toWhere) {
+    wxTreeItemId currentNodeID = fsTree->GetSelection();
+    if (currentNodeID == fsTree->GetRootItem()) {
+        wxMessageDialog cannotMoveRootDialog(
+            GetParent(), wxT("Невозможно переместить корень!"), wxT("Ошибка"));
+        cannotMoveRootDialog.ShowModal();
+        return;
+    }
+    auto enumeratePath = toWhere.getEnumerator();
+    auto foundNode = wxTreeItemId();
+    auto currentNode = fsTree->GetRootItem();
+    if (toWhere.toString() != "/") {
+        while (enumeratePath->moveNext()) {
+            wxTreeItemIdValue cookie;
+            wxTreeItemId item = fsTree->GetFirstChild(currentNode, cookie);
+            while (item.IsOk()) {
+                wxString sData = fsTree->GetItemText(item);
+                if (sData.ToStdString() == enumeratePath->current()) {
+                    break;
+                }
+            }
+            wxString sData = fsTree->GetItemText(item);
+            if (sData.ToStdString() == enumeratePath->current()) {
+                break;
+            } else {
+                item = fsTree->GetNextChild(item, cookie);
+            }
+        }
+        if (!foundNode.IsOk()) {
+            throw std::logic_error(
+                "Не найдена директория, в которую следует переместить!");
+        }
+    } else {
+        foundNode = fsTree->GetRootItem();
+    }
+    auto foundItemData = (FSTreeItemData *)(fsTree->GetItemData(foundNode));
+    if (foundItemData->getFSNode()->GetType() == LabFS::Filesystem::NODE_FILE) {
+        throw std::logic_error("попытка переместить не в директорию!");
+    }
+    ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+        ->getFSNode()
+        ->move(foundItemData->getFSNode());
+    auto newNode = fsTree->AppendItem(
+        foundNode, ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+                       ->getFSNode()
+                       ->GetName());
+    fsTree->SetItemData(
+        newNode, (wxTreeItemData *)(new FSTreeItemData(
+                                        ((FSTreeItemData *)fsTree->GetItemData(
+                                            currentNodeID))->getFSNode())));
+    fsTree->Delete(currentNodeID);
+}
+
 void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
     wxString message;
     wxFileDialog openFileDialog(this, wxT("Выберите файл для добавления"));
     wxTextEntryDialog newDirDialog(this,
                                    wxT("Введите название новой директории"));
+    wxTextEntryDialog moveDialog(this, wxT("Куда переместить?"));
     switch (event.GetBar()->GetItemId(event.GetButton())) {
     case wxID_ADD:
         if (openFileDialog.ShowModal() == wxID_CANCEL)
@@ -163,6 +221,13 @@ void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
             return;
         }
         addDirectory(newDirDialog.GetValue());
+        break;
+    case wxID_EDIT:
+        if (moveDialog.ShowModal() == wxID_CANCEL) {
+            return;
+        }
+        auto path = LabFS::Path(moveDialog.GetValue().ToStdString());
+        moveNode(path);
         break;
     }
 }
@@ -190,10 +255,12 @@ void MainFrame::updateDescriptionText() {
                                   currentNodeInfo->getFSNode()->GetName());
     } else {
         description = std::format(
-            "Имя файла:\t{}\nПуть до файла:\t{}\nХэш файла:\t{}\n",
+            "Имя файла:\t{}\nПуть до файла:\t{}\nХэш файла:\t{}\nРазмер "
+            "файла:\t{}\n",
             currentNodeInfo->getFSNode()->GetFile()->getName(),
             currentNodeInfo->getFSNode()->GetFile()->getPath().toString(),
-            currentNodeInfo->getFSNode()->GetFile()->getHash());
+            currentNodeInfo->getFSNode()->GetFile()->getHash(),
+            currentNodeInfo->getFSNode()->GetFile()->getSize());
     }
     descriptionText->SetValue(wxString::FromUTF8(description));
 }
@@ -217,7 +284,7 @@ MainFrame::MainFrame()
                                  wxRIBBON_PANEL_NO_AUTO_MINIMISE);
 
     deletePanel = new wxRibbonPanel(
-        mainRibbonPage, wxID_ANY, wxT("Удаление"), wxNullBitmap,
+        mainRibbonPage, wxID_ANY, wxT("Изменение"), wxNullBitmap,
         wxDefaultPosition, wxDefaultSize, wxRIBBON_PANEL_NO_AUTO_MINIMISE);
 
     addButtonBar = new wxRibbonButtonBar(addPanel);
@@ -234,6 +301,9 @@ MainFrame::MainFrame()
     deleteButtonBar->AddButton(
         wxID_DELETE, wxT("Удалить"),
         wxArtProvider::GetBitmap(wxART_DELETE, wxART_TOOLBAR, wxSize(32, 32)));
+    deleteButtonBar->AddButton(
+        wxID_EDIT, wxT("Переместить"),
+        wxArtProvider::GetBitmap(wxART_EDIT, wxART_TOOLBAR, wxSize(32, 32)));
 
     ribbonBar->AddPageHighlight(ribbonBar->GetPageCount() - 1);
     ribbonBar->Realise();
@@ -242,9 +312,9 @@ MainFrame::MainFrame()
     // ribbonBar->SetArtProvider(new wxRibbonMSWArtProvider);
 
     mainSplitter = new wxSplitterWindow(this);
-    descriptionText =
-        new wxTextCtrl(mainSplitter, wxID_ANY, "", wxDefaultPosition,
-                       wxDefaultSize, wxTE_MULTILINE | wxALIGN_TOP | wxTE_READONLY);
+    descriptionText = new wxTextCtrl(
+        mainSplitter, wxID_ANY, "", wxDefaultPosition, wxDefaultSize,
+        wxTE_MULTILINE | wxALIGN_TOP | wxTE_READONLY);
 
     mainSplitter->SetSashGravity(0.3);
 

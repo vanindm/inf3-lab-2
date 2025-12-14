@@ -25,7 +25,7 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
       public:
         File(std::string name, Path path,
              std::weak_ptr<Filesystem> fs = std::weak_ptr<Filesystem>())
-            : path(path), name(name), fs(fs) {
+            : path(path), name(name), fs(fs), size(0) {
             std::ifstream input;
             input.open(path.toString(), std::ios::in | std::ios::binary);
             PATypes::MutableArraySequence<char> *contents =
@@ -36,16 +36,21 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
                     throw std::length_error("файл не был прочитан");
                 }
                 contents->append(current);
+                ++size;
             }
             if (!input.eof() && input.fail()) {
                 throw std::length_error(path.toString());
                 throw std::length_error("файл не был прочитан");
             }
+            input.close();
             PATypes::Sequence<char> *ptr =
                 (PATypes::Sequence<char> *)(contents);
             assert(ptr != nullptr);
-            hash = LabFS_Aux::sha256(ptr);
+            hash = LabFS_Aux::pseudoSHA256(ptr);
             delete contents;
+        }
+        File(const File& file, std::weak_ptr<Filesystem> fsptr) : path(file.path) {
+
         }
 
         ~File() {
@@ -53,6 +58,7 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
                 lockedp->deindexByHash(hash);
         }
         size_t getHash() { return hash; }
+        size_t getSize() {return size; }
         Path getPath() { return path; }
         std::string getName() { return name; }
     };
@@ -65,6 +71,13 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
             subnodes;
         std::weak_ptr<Filesystem> fs;
         std::weak_ptr<Node> parent;
+
+        void changeFS(std::shared_ptr<Filesystem> fsptr) {
+            if (GetType() == NODE_FILE) {
+                auto lockedCurrentFS = fs.lock();
+                lockedCurrentFS->deindex(file);
+            }
+        }
 
       public:
         ~Node() {
@@ -104,8 +117,7 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
         }
         std::string GetName() {
             if (file != nullptr)
-                throw std::logic_error(
-                    "попытка получения имени директории файла");
+                return file->getName();
             return directoryName;
         }
         std::shared_ptr<Node> AddFileSubnode(std::shared_ptr<File> file) {
@@ -130,6 +142,20 @@ class Filesystem : std::enable_shared_from_this<Filesystem> {
                 throw std::logic_error("попытка получения файла директории");
             }
             return file;
+        }
+        void move(std::shared_ptr<Node> target) {
+            auto fsptr = fs.lock();
+            auto targetfsptr = target->fs.lock();
+            if (fsptr == targetfsptr) {
+                auto parentptr = parent.lock();
+                if (GetType() == NODE_DIRECTORY) {
+                    target->subnodes->Add(directoryName, shared_from_this());
+                    parentptr->subnodes->Delete(directoryName);
+                } else {
+                    target->subnodes->Add(file->getName(), shared_from_this());
+                    parentptr->subnodes->Delete(file->getName());
+                }
+            }
         }
     };
 

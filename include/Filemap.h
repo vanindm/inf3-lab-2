@@ -10,10 +10,10 @@ class Path {
     PATypes::LinkedList<std::string> storage;
 
   public:
-    Path(const std::string &pathString) {
+    Path(const std::string &pathString, const std::string &home = HOMEDIR) {
         std::string rpath = pathString;
         if (rpath[0] != '/') {
-            rpath = HOMEDIR + pathString;
+            rpath = home + pathString;
         }
         std::string::size_type pos, start = 0;
         while ((pos = rpath.find('/', start)) != std::string::npos) {
@@ -23,6 +23,7 @@ class Path {
         }
         storage.append(rpath.substr(start));
     }
+    Path(const Path& path) : storage(path.storage) {}
     std::string toString() {
         std::string res = "";
         auto iter = storage.getEnumerator();

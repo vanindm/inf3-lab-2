@@ -5,7 +5,7 @@
 #include <memory>
 
 namespace LabFS_Aux {
-	size_t sha256(PATypes::Sequence<char>* sequence) {
+	size_t pseudoSHA256(PATypes::Sequence<char>* sequence) {
 		unsigned char *buffer = new unsigned char[sequence->getLength()];
 		unsigned char *ptr = buffer;
 		auto enumerator = sequence->getEnumerator();
