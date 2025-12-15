@@ -14,12 +14,15 @@
 
 #include "Filemap.h"
 #include "Filesystem.h"
+#include "PermissionsDialog.h"
 
 class LabFSApp : public wxApp {
   public:
     virtual bool OnInit();
     virtual bool OnExceptionInMainLoop() override;
 };
+
+LabFS::Filesystem::Subject* subject = LabFS::Filesystem::Subject::GetSubject(1);
 
 class MainFrame : public wxFrame {
     wxRibbonBar *ribbonBar;
@@ -31,6 +34,9 @@ class MainFrame : public wxFrame {
     wxRibbonButtonBar *addButtonBar;
     wxRibbonPanel *deletePanel;
     wxRibbonButtonBar *deleteButtonBar;
+
+    wxRibbonPanel *permissionsPanel;
+    wxRibbonButtonBar *permissionsButtonBar;
 
     wxSplitterWindow *mainSplitter;
     wxTextCtrl *descriptionText;
@@ -54,8 +60,12 @@ class MainFrame : public wxFrame {
     void addDirectory(const wxString &name);
     void deleteNode();
     void moveNode(LabFS::Path &path);
-    void moveNodeID(wxTreeItemId Node, LabFS::Path &toWhere);
+    void moveNodeID(wxTreeItemId Node, wxTreeItemId newParent,
+                    LabFS::Path &toWhere);
     void updateDescriptionText();
+    void changeSubject();
+    //void changeSubjectOf(LabFS::Path& path);
+    void changePermsOf();
 
   public:
     MainFrame();
@@ -64,25 +74,26 @@ class MainFrame : public wxFrame {
     wxDECLARE_EVENT_TABLE();
 };
 
+// clang-format off
+
 wxIMPLEMENT_APP(LabFSApp);
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_RIBBONBUTTONBAR_CLICKED(wxID_ADD, MainFrame::onRibbonButtonClicked)
-        EVT_RIBBONBUTTONBAR_CLICKED(wxID_DELETE,
-                                    MainFrame::onRibbonButtonClicked)
-            EVT_RIBBONBUTTONBAR_CLICKED(wxID_HARDDISK,
-                                        MainFrame::onRibbonButtonClicked)
-                EVT_RIBBONBUTTONBAR_CLICKED(wxID_EDIT,
-                                            MainFrame::onRibbonButtonClicked)
-                    EVT_TREE_SEL_CHANGED(wxID_TOP,
-                                         MainFrame::onFSTreeSelectionChanged)
-                        wxEND_EVENT_TABLE()
+    EVT_RIBBONBUTTONBAR_CLICKED(wxID_DELETE, MainFrame::onRibbonButtonClicked)
+    EVT_RIBBONBUTTONBAR_CLICKED(wxID_HARDDISK, MainFrame::onRibbonButtonClicked)
+    EVT_RIBBONBUTTONBAR_CLICKED(wxID_EDIT, MainFrame::onRibbonButtonClicked)
+    EVT_RIBBONBUTTONBAR_CLICKED(wxID_SETUP, MainFrame::onRibbonButtonClicked)
+    EVT_RIBBONBUTTONBAR_CLICKED(wxID_CLEAR, MainFrame::onRibbonButtonClicked)
+    EVT_TREE_SEL_CHANGED(wxID_TOP, MainFrame::onFSTreeSelectionChanged)
+wxEND_EVENT_TABLE()
 
-                            bool LabFSApp::OnInit() {
+bool LabFSApp::OnInit() {
     MainFrame *frame = new MainFrame();
     frame->Show(true);
     return true;
 }
+// clang-format on
 
 bool LabFSApp::OnExceptionInMainLoop() {
     try {
@@ -113,7 +124,7 @@ void MainFrame::addFile(const wxString &filename, const LabFS::Path &path) {
         (FSTreeItemData *)fsTree->GetItemData(currentNodeID);
     if (currentNodeInfo->getFSNode() != nullptr) {
         auto newFSNode = currentNodeInfo->getFSNode()->AddFileSubnode(
-            fs.addFile(filename.ToStdString(), path));
+            fs.addFile(filename.ToStdString(), path), subject);
         wxTreeItemId newNode = fsTree->AppendItem(currentNodeID, filename);
         fsTree->SetItemData(newNode,
                             (wxTreeItemData *)(new FSTreeItemData(newFSNode)));
@@ -134,7 +145,7 @@ void MainFrame::addDirectory(const wxString &name) {
         (FSTreeItemData *)fsTree->GetItemData(currentNodeID);
 
     auto newFSNode =
-        currentNodeInfo->getFSNode()->AddDirectorySubnode(name.ToStdString());
+        currentNodeInfo->getFSNode()->AddDirectorySubnode(name.ToStdString(), subject);
     wxTreeItemId newNode = fsTree->AppendItem(currentNodeID, name);
     fsTree->SetItemData(newNode,
                         (wxTreeItemData *)(new FSTreeItemData(newFSNode)));
@@ -152,7 +163,8 @@ void MainFrame::deleteNode() {
     fsTree->Delete(currentNodeID);
 }
 
-void MainFrame::moveNodeID(wxTreeItemId Node, LabFS::Path &toWhere) {
+void MainFrame::moveNodeID(wxTreeItemId Node, wxTreeItemId newParent,
+                           LabFS::Path &toWhere) {
     wxTreeItemId currentNodeID = Node;
     if (currentNodeID == fsTree->GetRootItem()) {
         wxMessageDialog cannotMoveRootDialog(
@@ -160,41 +172,41 @@ void MainFrame::moveNodeID(wxTreeItemId Node, LabFS::Path &toWhere) {
         cannotMoveRootDialog.ShowModal();
         return;
     }
-    auto targetFSNode = fs.getNodeByPath(toWhere);
-    wxTreeItemId* targetFSTreeNode = (wxTreeItemId*) targetFSNode->GetReference();
-    if (targetFSTreeNode == nullptr) {
-        throw std::logic_error("Директории не существует");
-    }
-    
-    auto foundItemData = (FSTreeItemData *)(fsTree->GetItemData(*targetFSTreeNode));
-    if (targetFSNode->GetType() == LabFS::Filesystem::NODE_FILE) {
-        throw std::logic_error("попытка переместить не в директорию!");
-    }
 
-    ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
-        ->getFSNode()
-        ->move(targetFSNode);
-    
+    auto fsNode =
+        ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode();
+
     auto newNode = fsTree->AppendItem(
-        *targetFSTreeNode, ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+        newParent, ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
                        ->getFSNode()
                        ->GetName());
 
-    delete (wxTreeItemId*)((FSTreeItemData *) fsTree->GetItemData(currentNodeID))->getFSNode()->GetReference();
+    fsNode->SetReference(new wxTreeItemId(newNode));
+
+    delete (
+        wxTreeItemId *)((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+        ->getFSNode()
+        ->GetReference();
     ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
         ->getFSNode()
         ->SetReference(new wxTreeItemId(newNode));
 
     fsTree->SetItemData(
         newNode, (wxTreeItemData *)(new FSTreeItemData(
-                                        ((FSTreeItemData *)fsTree->GetItemData(
-                                            currentNodeID))->getFSNode())));
+                     ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+                         ->getFSNode())));
 
-    if (((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode()->GetType() == LabFS::Filesystem::NODE_DIRECTORY) {
+    if (((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+            ->getFSNode()
+            ->GetType() == LabFS::Filesystem::NODE_DIRECTORY) {
         wxTreeItemIdValue cookie;
         wxTreeItemId item = fsTree->GetFirstChild(currentNodeID, cookie);
         while (item.IsOk()) {
-            moveNodeID(item, toWhere.add(((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode()->GetName()));
+            moveNodeID(item, newNode,
+                       toWhere.add(((FSTreeItemData *)fsTree->GetItemData(
+                                        currentNodeID))
+                                       ->getFSNode()
+                                       ->GetName()));
             item = fsTree->GetNextChild(item, cookie);
         }
     }
@@ -210,44 +222,76 @@ void MainFrame::moveNode(LabFS::Path &toWhere) {
         return;
     }
     auto targetFSNode = fs.getNodeByPath(toWhere);
-    wxTreeItemId* targetFSTreeNode = (wxTreeItemId*) targetFSNode->GetReference();
+    wxTreeItemId *targetFSTreeNode =
+        (wxTreeItemId *)targetFSNode->GetReference();
     if (targetFSTreeNode == nullptr) {
         throw std::logic_error("Директории не существует");
     }
-    
-    auto foundItemData = (FSTreeItemData *)(fsTree->GetItemData(*targetFSTreeNode));
+
+    // auto foundItemData = (FSTreeItemData
+    // *)(fsTree->GetItemData(*targetFSTreeNode));
     if (targetFSNode->GetType() == LabFS::Filesystem::NODE_FILE) {
         throw std::logic_error("попытка переместить не в директорию!");
     }
 
     ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
         ->getFSNode()
-        ->move(targetFSNode);
-    
-    auto newNode = fsTree->AppendItem(
-        *targetFSTreeNode, ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
-                       ->getFSNode()
-                       ->GetName());
+        ->move(targetFSNode, subject);
 
-    delete (wxTreeItemId*)((FSTreeItemData *) fsTree->GetItemData(currentNodeID))->getFSNode()->GetReference();
+    auto newNode = fsTree->AppendItem(
+        *targetFSTreeNode,
+        ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+            ->getFSNode()
+            ->GetName());
+
+    delete (
+        wxTreeItemId *)((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+        ->getFSNode()
+        ->GetReference();
     ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
         ->getFSNode()
         ->SetReference(new wxTreeItemId(newNode));
 
     fsTree->SetItemData(
         newNode, (wxTreeItemData *)(new FSTreeItemData(
-                                        ((FSTreeItemData *)fsTree->GetItemData(
-                                            currentNodeID))->getFSNode())));
+                     ((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+                         ->getFSNode())));
 
-    if (((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode()->GetType() == LabFS::Filesystem::NODE_DIRECTORY) {
+    if (((FSTreeItemData *)fsTree->GetItemData(currentNodeID))
+            ->getFSNode()
+            ->GetType() == LabFS::Filesystem::NODE_DIRECTORY) {
         wxTreeItemIdValue cookie;
         wxTreeItemId item = fsTree->GetFirstChild(currentNodeID, cookie);
         while (item.IsOk()) {
-            moveNodeID(item, toWhere.add(((FSTreeItemData *)fsTree->GetItemData(currentNodeID))->getFSNode()->GetName()));
+            moveNodeID(item, newNode,
+                       toWhere.add(((FSTreeItemData *)fsTree->GetItemData(
+                                        currentNodeID))
+                                       ->getFSNode()
+                                       ->GetName()));
             item = fsTree->GetNextChild(item, cookie);
         }
     }
     fsTree->Delete(currentNodeID);
+}
+
+void MainFrame::changeSubject() {
+    wxTextEntryDialog subjectDialog(this, wxT("Введите желаемый ID пользователя"));
+    if (subjectDialog.ShowModal() == wxID_CANCEL)
+        return;
+    unsigned int resSubject = 0;
+    subjectDialog.GetValue().ToUInt(&resSubject);
+    subject = LabFS::Filesystem::Subject::GetSubject(resSubject);
+}
+
+void MainFrame::changePermsOf() {
+    PermissionsDialog permissionsDialog( wxT("Введите желаемые разрешения"));
+    if (permissionsDialog.ShowModal() == wxID_CANCEL)
+        return;
+    LabFS::Filesystem::Permissions perms = permissionsDialog.GetValue();
+    auto node = ((FSTreeItemData *)fsTree->GetItemData(fsTree->GetSelection()))
+        ->getFSNode();
+    node->SetPermissions(subject, perms);
+
 }
 
 void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
@@ -256,6 +300,7 @@ void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
     wxTextEntryDialog newDirDialog(this,
                                    wxT("Введите название новой директории"));
     wxTextEntryDialog moveDialog(this, wxT("Куда переместить?"));
+    LabFS::Path path("/");
     switch (event.GetBar()->GetItemId(event.GetButton())) {
     case wxID_ADD:
         if (openFileDialog.ShowModal() == wxID_CANCEL)
@@ -276,8 +321,14 @@ void MainFrame::onRibbonButtonClicked(wxRibbonButtonBarEvent &event) {
         if (moveDialog.ShowModal() == wxID_CANCEL) {
             return;
         }
-        auto path = LabFS::Path(moveDialog.GetValue().ToStdString());
+        path = LabFS::Path(moveDialog.GetValue().ToStdString());
         moveNode(path);
+        break;
+    case wxID_SETUP:
+        changeSubject();
+        break;
+    case wxID_CLEAR:
+        changePermsOf();
         break;
     }
 }
@@ -354,6 +405,17 @@ MainFrame::MainFrame()
     deleteButtonBar->AddButton(
         wxID_EDIT, wxT("Переместить"),
         wxArtProvider::GetBitmap(wxART_EDIT, wxART_TOOLBAR, wxSize(32, 32)));
+
+    permissionsPanel = new wxRibbonPanel(permissionsRibbonPage, wxID_ANY,
+                                         wxT("Разрешения"), wxNullBitmap);
+    permissionsButtonBar = new wxRibbonButtonBar(permissionsPanel);
+    permissionsButtonBar->AddButton(
+        wxID_SETUP, wxT("Задать пользователя"),
+        wxArtProvider::GetBitmap(wxART_REFRESH, wxART_TOOLBAR, wxSize(32, 32)));
+
+    permissionsButtonBar->AddButton(
+        wxID_CLEAR, wxT("Задать разрешения"),
+        wxArtProvider::GetBitmap(wxART_FOLDER, wxART_TOOLBAR, wxSize(32, 32)));
 
     ribbonBar->AddPageHighlight(ribbonBar->GetPageCount() - 1);
     ribbonBar->Realise();
